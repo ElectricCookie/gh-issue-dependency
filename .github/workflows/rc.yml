@@ -224,14 +224,16 @@ jobs:
 
       - name: Create RC Tag
         if: steps.conventional.outputs.should_release == 'true'
+        env:
+          RC_TAG: ${{ steps.version.outputs.rc_tag }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          git tag -a "${{ steps.version.outputs.rc_tag }}" -m "Release Candidate ${{ steps.version.outputs.rc_tag }}"
-          git push origin "${{ steps.version.outputs.rc_tag }}"
+          git tag -a "$RC_TAG" -m "Release Candidate $RC_TAG"
+          git push origin "$RC_TAG"
           
-          echo "🚀 Created RC tag: ${{ steps.version.outputs.rc_tag }}"
+          echo "🚀 Created RC tag: $RC_TAG"
 
   # Runs on hotfix branch pushes
   create-hotfix-rc:
@@ -253,9 +255,11 @@ jobs:
 
       - name: Calculate hotfix version
         id: hotfix_version
+        env:
+          BRANCH_NAME_INPUT: ${{ github.ref_name }}
         run: |
           # Extract branch name and validate hotfix pattern
-          BRANCH_NAME="${{ github.ref_name }}"
+          BRANCH_NAME="$BRANCH_NAME_INPUT"
           echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
           
           # Validate hotfix branch format: hotfix/{issue}-{description}
@@ -317,14 +321,16 @@ jobs:
           echo "🔢 Hotfix RC tag: $HOTFIX_RC_TAG"
 
       - name: Create Hotfix RC Tag
+        env:
+          HOTFIX_RC_TAG: ${{ steps.hotfix_version.outputs.rc_tag }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          git tag -a "${{ steps.hotfix_version.outputs.rc_tag }}" -m "Hotfix Release Candidate ${{ steps.hotfix_version.outputs.rc_tag }}"
-          git push origin "${{ steps.hotfix_version.outputs.rc_tag }}"
+          git tag -a "$HOTFIX_RC_TAG" -m "Hotfix Release Candidate $HOTFIX_RC_TAG"
+          git push origin "$HOTFIX_RC_TAG"
           
-          echo "🚀 Created hotfix RC tag: ${{ steps.hotfix_version.outputs.rc_tag }}"
+          echo "🚀 Created hotfix RC tag: $HOTFIX_RC_TAG"
 
   # Build RC (beta) version for main branch
   build-rc:
@@ -366,17 +372,18 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
+          RC_TAG: ${{ needs.create-rc.outputs.rc_tag }}
         run: |
           mkdir -p dist
           EXT=""
-          if [ "${{ matrix.goos }}" = "windows" ]; then
+          if [ "$GOOS" = "windows" ]; then
             EXT=".exe"
           fi
           
-          BINARY_NAME="gh-issue-dependency-${{ needs.create-rc.outputs.rc_tag }}-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}"
+          BINARY_NAME="gh-issue-dependency-${RC_TAG}-${GOOS}-${GOARCH}${EXT}"
           
           go build \
-            -ldflags "-s -w -X cmd.Version=${{ needs.create-rc.outputs.rc_tag }} -X cmd.Commit=${GITHUB_SHA:0:8} -X cmd.BuildType=beta" \
+            -ldflags "-s -w -X cmd.Version=${RC_TAG} -X cmd.Commit=${GITHUB_SHA:0:8} -X cmd.BuildType=beta" \
             -o "dist/${BINARY_NAME}" \
             .
           
@@ -430,17 +437,18 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
+          HOTFIX_RC_TAG: ${{ needs.create-hotfix-rc.outputs.hotfix_rc_tag }}
         run: |
           mkdir -p dist
           EXT=""
-          if [ "${{ matrix.goos }}" = "windows" ]; then
+          if [ "$GOOS" = "windows" ]; then
             EXT=".exe"
           fi
           
-          BINARY_NAME="gh-issue-dependency-${{ needs.create-hotfix-rc.outputs.hotfix_rc_tag }}-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}"
+          BINARY_NAME="gh-issue-dependency-${HOTFIX_RC_TAG}-${GOOS}-${GOARCH}${EXT}"
           
           go build \
-            -ldflags "-s -w -X cmd.Version=${{ needs.create-hotfix-rc.outputs.hotfix_rc_tag }} -X cmd.Commit=${GITHUB_SHA:0:8} -X cmd.BuildType=hotfix" \
+            -ldflags "-s -w -X cmd.Version=${HOTFIX_RC_TAG} -X cmd.Commit=${GITHUB_SHA:0:8} -X cmd.BuildType=hotfix" \
             -o "dist/${BINARY_NAME}" \
             .
           
@@ -467,13 +475,18 @@ jobs:
     
     steps:
       - name: RC Created Notification
+        env:
+          SHOULD_CREATE_HOTFIX_RC: ${{ needs.create-hotfix-rc.outputs.should_create_hotfix_rc }}
+          HOTFIX_RC_TAG: ${{ needs.create-hotfix-rc.outputs.hotfix_rc_tag }}
+          BASE_VERSION: ${{ needs.create-hotfix-rc.outputs.base_version }}
+          RC_TAG: ${{ needs.create-rc.outputs.rc_tag }}
         run: |
-          if [ "${{ needs.create-hotfix-rc.outputs.should_create_hotfix_rc }}" = "true" ]; then
-            echo "🩹 Hotfix RC ${{ needs.create-hotfix-rc.outputs.hotfix_rc_tag }} created successfully"
-            echo "📦 Base version: ${{ needs.create-hotfix-rc.outputs.base_version }}"
+          if [ "$SHOULD_CREATE_HOTFIX_RC" = "true" ]; then
+            echo "🩹 Hotfix RC $HOTFIX_RC_TAG created successfully"
+            echo "📦 Base version: $BASE_VERSION"
             echo "🚀 Beta workflow will automatically deploy this RC for testing"
           else
-            echo "🏷️ RC ${{ needs.create-rc.outputs.rc_tag }} created successfully"
+            echo "🏷️ RC $RC_TAG created successfully"
             echo "🚀 Beta workflow will automatically deploy this RC for testing"
           fi
           echo ""
