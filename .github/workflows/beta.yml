@@ -38,16 +38,20 @@ jobs:
 
       - name: Get version
         id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "version=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "version=$INPUT_TAG" >> $GITHUB_OUTPUT
           else
             echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
 
       - name: Validate RC tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
           if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc[0-9]+$ ]]; then
             echo "❌ Invalid RC tag format: $VERSION"
             echo "Expected format: v1.2.3-rc1"
@@ -57,8 +61,10 @@ jobs:
 
       - name: Calculate release version
         id: release_version
+        env:
+          RC_TAG_INPUT: ${{ steps.version.outputs.version }}
         run: |
-          RC_TAG="${{ steps.version.outputs.version }}"
+          RC_TAG="$RC_TAG_INPUT"
           # Convert RC tag to release tag (v1.2.0-rc1 -> v1.2.0)
           RELEASE_TAG=${RC_TAG%-rc*}
           echo "release_tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
@@ -68,6 +74,8 @@ jobs:
         run: go test -v -race ./...
 
       - name: Build beta binaries
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           mkdir -p dist
           
@@ -83,11 +91,11 @@ jobs:
               EXT=".exe"
             fi
             
-            BINARY_NAME="gh-issue-dependency-${{ steps.version.outputs.version }}-${GOOS}-${GOARCH}${EXT}"
+            BINARY_NAME="gh-issue-dependency-${VERSION}-${GOOS}-${GOARCH}${EXT}"
             
             echo "Building $BINARY_NAME..."
             GOOS=$GOOS GOARCH=$GOARCH CGO_ENABLED=0 go build \
-              -ldflags "-s -w -X cmd.Version=${{ steps.version.outputs.version }} -X cmd.Commit=${GITHUB_SHA:0:8} -X cmd.BuildType=beta" \
+              -ldflags "-s -w -X cmd.Version=${VERSION} -X cmd.Commit=${GITHUB_SHA:0:8} -X cmd.BuildType=beta" \
               -o "dist/${BINARY_NAME}" \
               .
             
@@ -124,11 +132,14 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Notify beta deployment
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_TAG: ${{ steps.release_version.outputs.release_tag }}
         run: |
           echo "🧪 Beta deployment completed!"
-          echo "RC Version: ${{ steps.version.outputs.version }}"
-          echo "Target Release: ${{ steps.release_version.outputs.release_tag }}"
-          echo "Download: https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.version }}"
+          echo "RC Version: $VERSION"
+          echo "Target Release: $RELEASE_TAG"
+          echo "Download: https://github.com/${{ github.repository }}/releases/tag/$VERSION"
           echo ""
           echo "🔬 Test this beta release thoroughly"
           echo "✅ If ready for production, approve the next step to create release tag"
@@ -149,12 +160,12 @@ jobs:
           fetch-depth: 0
       
       - name: Create production release tag
+        env:
+          RC_TAG: ${{ needs.beta-deploy.outputs.rc_tag }}
+          RELEASE_TAG: ${{ needs.beta-deploy.outputs.release_tag }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          
-          RC_TAG="${{ needs.beta-deploy.outputs.rc_tag }}"
-          RELEASE_TAG="${{ needs.beta-deploy.outputs.release_tag }}"
           
           # Get the commit that the RC tag points to
           RC_COMMIT=$(git rev-list -n 1 "$RC_TAG")

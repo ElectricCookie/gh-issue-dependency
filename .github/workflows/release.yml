@@ -61,9 +61,12 @@ jobs:
 
       - name: Get version
         id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "version=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "version=$INPUT_TAG" >> $GITHUB_OUTPUT
           else
             echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
@@ -76,17 +79,18 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           mkdir -p dist
           EXT=""
-          if [ "${{ matrix.goos }}" = "windows" ]; then
+          if [ "$GOOS" = "windows" ]; then
             EXT=".exe"
           fi
           
-          BINARY_NAME="gh-issue-dependency-${{ steps.version.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}"
+          BINARY_NAME="gh-issue-dependency-${VERSION}-${GOOS}-${GOARCH}${EXT}"
           
           go build \
-            -ldflags "-s -w -X cmd.Version=${{ steps.version.outputs.version }} -X cmd.Commit=${GITHUB_SHA:0:8} -X cmd.BuildType=release" \
+            -ldflags "-s -w -X cmd.Version=${VERSION} -X cmd.Commit=${GITHUB_SHA:0:8} -X cmd.BuildType=release" \
             -o "dist/${BINARY_NAME}" \
             .
           
@@ -121,19 +125,28 @@ jobs:
 
       - name: Get version
         id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "version=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "version=$INPUT_TAG" >> $GITHUB_OUTPUT
           else
             echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
 
       - name: Generate changelog
         id: changelog
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           if [ -f CHANGELOG.md ]; then
             # Extract changelog for this version
-            awk '/^## \['${{ steps.version.outputs.version }}'\]/{flag=1; next} /^## \[/{flag=0} flag' CHANGELOG.md > release_notes.md
+            awk -v version="$VERSION" '
+              $0 ~ "^## \\[" version "\\]" {flag=1; next}
+              /^## \[/ {flag=0}
+              flag
+            ' CHANGELOG.md > release_notes.md
           else
             # Generate basic changelog from commits
             echo "## Changes" > release_notes.md
@@ -172,21 +185,28 @@ jobs:
     steps:
       - name: Get version
         id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "version=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "version=$INPUT_TAG" >> $GITHUB_OUTPUT
           else
             echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
 
       - name: Notify success
         if: needs.release.result == 'success'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          echo "✅ Release ${{ steps.version.outputs.version }} completed successfully!"
-          echo "Download: https://github.com/torynet/gh-issue-dependency/releases/tag/${{ steps.version.outputs.version }}"
+          echo "✅ Release $VERSION completed successfully!"
+          echo "Download: https://github.com/torynet/gh-issue-dependency/releases/tag/$VERSION"
 
       - name: Notify failure
         if: needs.release.result == 'failure'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          echo "❌ Release ${{ steps.version.outputs.version }} failed!"
+          echo "❌ Release $VERSION failed!"
           exit 1

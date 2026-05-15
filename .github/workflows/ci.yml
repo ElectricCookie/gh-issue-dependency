@@ -13,8 +13,10 @@ jobs:
     if: github.event_name == 'pull_request'
     steps:
       - name: Check branch naming convention
+        env:
+          BRANCH_NAME_INPUT: ${{ github.head_ref }}
         run: |
-          BRANCH_NAME="${{ github.head_ref }}"
+          BRANCH_NAME="$BRANCH_NAME_INPUT"
           echo "Validating branch: $BRANCH_NAME"
 
           # Check if branch follows pattern: (feature|hotfix|epic)/123-description
@@ -33,9 +35,12 @@ jobs:
     if: github.event_name == 'pull_request'
     steps:
       - name: Check PR title for issue reference and conventional commit format
+        env:
+          PR_TITLE_INPUT: ${{ github.event.pull_request.title }}
+          BRANCH_NAME_INPUT: ${{ github.head_ref }}
         run: |
-          PR_TITLE="${{ github.event.pull_request.title }}"
-          BRANCH_NAME="${{ github.head_ref }}"
+          PR_TITLE="$PR_TITLE_INPUT"
+          BRANCH_NAME="$BRANCH_NAME_INPUT"
 
           # Extract issue number from branch name
           ISSUE_NUM=$(echo "$BRANCH_NAME" | sed -n 's/^[^/]*\/\([0-9]\+\)-.*/\1/p')
@@ -238,10 +243,10 @@ jobs:
         run: |
           mkdir -p dist
           EXT=""
-          if [ "${{ matrix.goos }}" = "windows" ]; then
+          if [ "$GOOS" = "windows" ]; then
             EXT=".exe"
           fi
-          go build -v -ldflags "-X cmd.Version=${GITHUB_SHA:0:8}" -o "dist/gh-issue-dependency-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}" .
+          go build -v -ldflags "-X cmd.Version=${GITHUB_SHA:0:8}" -o "dist/gh-issue-dependency-${GOOS}-${GOARCH}${EXT}" .
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v3
